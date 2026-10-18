@@ -50523,6 +50523,58 @@ async fn test_display_row_for_inline_code_action_with_block_above(cx: &mut gpui:
 }
 
 #[gpui::test]
+async fn test_markdown_list_soft_wrap_updates_after_reparse(cx: &mut gpui::TestAppContext) {
+    init_test(cx, |settings| {
+        settings.defaults.soft_wrap = Some(language::language_settings::SoftWrap::Bounded);
+        settings.defaults.soft_wrap_indent = Some(SoftWrapIndent::List);
+        settings.defaults.preferred_line_length = Some(20);
+    });
+
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.set_state("ˇ- alpha beta gamma delta epsilon");
+    cx.update_editor(|editor, _, cx| {
+        assert_eq!(
+            editor.display_snapshot(cx).soft_wrap_indent(DisplayRow(0)),
+            Some(0)
+        );
+    });
+
+    cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_lang()), cx));
+    cx.run_until_parked();
+    cx.update_editor(|editor, _, cx| {
+        assert_eq!(
+            editor.display_snapshot(cx).soft_wrap_indent(DisplayRow(0)),
+            Some(2)
+        );
+    });
+
+    cx.update_buffer(|buffer, cx| {
+        let end = buffer.len();
+        buffer.edit([(0..0, "```\n"), (end..end, "\n```")], None, cx);
+    });
+    cx.run_until_parked();
+    cx.update_editor(|editor, _, cx| {
+        assert_eq!(
+            editor.display_snapshot(cx).soft_wrap_indent(DisplayRow(1)),
+            Some(0)
+        );
+    });
+
+    cx.update_buffer(|buffer, cx| {
+        let end = buffer.len();
+        buffer.edit([(0..4, ""), (end - 4..end, "")], None, cx);
+    });
+    cx.run_until_parked();
+    cx.update_editor(|editor, _, cx| {
+        assert_eq!(
+            editor.display_snapshot(cx).soft_wrap_indent(DisplayRow(0)),
+            Some(2)
+        );
+    });
+    assert_eq!(cx.buffer_text(), "- alpha beta gamma delta epsilon");
+}
+
+#[gpui::test]
 async fn test_soft_wrap_indent_updated_on_language_changed(cx: &mut gpui::TestAppContext) {
     // Configure Rust to have a different continuation indent behavior than the default.
     init_test(cx, |settings| {

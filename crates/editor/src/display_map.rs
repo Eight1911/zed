@@ -75,6 +75,7 @@ mod custom_highlights;
 mod fold_map;
 mod inlay_map;
 mod invisibles;
+mod markdown_list;
 mod tab_map;
 mod wrap_map;
 

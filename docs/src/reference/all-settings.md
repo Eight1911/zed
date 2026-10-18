@@ -4553,6 +4553,23 @@ Positive integer values
 2. `same` to match the original line's indentation
 3. `extra_one` to add 1 extra indent level beyond the original line
 4. `extra_two` to add 2 extra indent levels beyond the original line
+5. `list` to align wrapped Markdown list items with their text, including nested
+   lists, numbered lists, and checkboxes. Other lines retain their original
+   indentation. This only changes the display; it does not insert spaces or newlines
+   into the document.
+
+To enable list-aware wrapping for Markdown, add this to your settings:
+
+```json [settings]
+{
+  "languages": {
+    "Markdown": {
+      "soft_wrap": "editor_width",
+      "soft_wrap_indent": "list"
+    }
+  }
+}
+```
 
 ## Show Wrap Guides
 
