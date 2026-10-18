@@ -557,6 +557,9 @@ pub enum SoftWrapIndent {
     ExtraOne,
     /// Continuation lines get 2 extra indent levels beyond the original.
     ExtraTwo,
+    /// Markdown list continuation lines align with the item text.
+    /// Other lines retain their original indentation.
+    List,
 }
 
 /// The settings for a particular language.
