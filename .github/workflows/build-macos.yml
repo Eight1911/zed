@@ -1,0 +1,50 @@
+name: Build macOS app
+
+# GitHub requires this workflow on the fork's default branch for manual runs.
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: 'Mac architecture: aarch64 for Apple Silicon, x86_64 for Intel'
+        type: choice
+        default: aarch64
+        options:
+          - aarch64
+          - x86_64
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
+    timeout-minutes: 360
+    env:
+      CARGO_INCREMENTAL: '0'
+      # Reduce memory and disk usage on standard GitHub-hosted runners.
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_RELEASE_DEBUG: '0'
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+
+      - name: Set up the pinned Rust toolchain
+        run: rustup show
+
+      - name: Build and bundle Zed
+        run: ./script/bundle-mac
+
+      - name: Upload the disk image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: Zed-macos-${{ inputs.architecture }}
+          path: target/*/release/Zed-*.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
