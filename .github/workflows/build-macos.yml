@@ -24,7 +24,6 @@ jobs:
       # Reduce memory and disk usage on standard GitHub-hosted runners.
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_RELEASE_DEBUG: '0'
-      CARGO_PROFILE_RELEASE_LTO: 'false'
     defaults:
       run:
         shell: bash -euo pipefail {0}
