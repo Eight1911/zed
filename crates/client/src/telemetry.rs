@@ -95,11 +95,8 @@ pub static MINIDUMP_ENDPOINT: LazyLock<Option<String>> = LazyLock::new(|| {
         .or_else(|| env::var("ZED_MINIDUMP_ENDPOINT").ok())
 });
 
-pub fn should_install_crash_handler(channel: ReleaseChannel) -> bool {
-    matches!(
-        env::var("ZED_GENERATE_MINIDUMPS").as_deref(),
-        Ok("true" | "1")
-    ) || (channel != ReleaseChannel::Dev && MINIDUMP_ENDPOINT.is_some())
+pub fn should_install_crash_handler(_channel: ReleaseChannel) -> bool {
+    false
 }
 
 static DOTNET_PROJECT_FILES_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -216,7 +213,9 @@ impl Telemetry {
             let os_version = os_version();
             state.lock().os_version = Some(os_version);
             async move {
-                if let Some(tempfile) = File::create(Self::log_file_path()).ok() {
+                if ::telemetry::ENABLED
+                    && let Some(tempfile) = File::create(Self::log_file_path()).ok()
+                {
                     state.lock().log_file = Some(tempfile);
                 }
             }
@@ -361,6 +360,9 @@ impl Telemetry {
         cx: &App,
     ) {
         let mut state = self.state.lock();
+        if !state.settings.metrics {
+            return;
+        }
         state.system_id = system_id.map(|id| id.into());
         state.installation_id = installation_id.map(|id| id.into());
         state.session_id = Some(session_id);
@@ -565,12 +567,12 @@ impl Telemetry {
 
     fn report_event(self: &Arc<Self>, mut event: Event) {
         let mut state = self.state.lock();
-        // RUST_LOG=telemetry=trace to debug telemetry events
-        log::trace!(target: "telemetry", "{:?}", event);
-
         if !state.settings.metrics {
             return;
         }
+
+        // RUST_LOG=telemetry=trace to debug telemetry events
+        log::trace!(target: "telemetry", "{:?}", event);
 
         match &mut event {
             Event::Flexible(event) => event
@@ -745,6 +747,53 @@ mod tests {
     use worktree::{PathChange, ProjectEntryId, WorktreeId};
 
     #[gpui::test]
+    async fn test_telemetry_stays_disabled_after_opt_in(cx: &mut TestAppContext) {
+        init_test(cx);
+        cx.update_global::<SettingsStore, _>(|settings, cx| {
+            settings.update_user_settings(cx, |content| {
+                let telemetry = content.telemetry.get_or_insert_default();
+                telemetry.metrics = Some(true);
+                telemetry.diagnostics = Some(true);
+                telemetry.anthropic_retention = Some(true);
+            });
+        });
+        let telemetry = cx.update(|cx| {
+            let telemetry = Telemetry::new(
+                Arc::new(FakeSystemClock::new()),
+                FakeHttpClient::create(|_| async { panic!("telemetry must not upload") }),
+                cx,
+            );
+            telemetry.start(
+                Some("system".into()),
+                Some("installation".into()),
+                "session".into(),
+                cx,
+            );
+            telemetry
+        });
+        telemetry.set_authenticated_user_info(Some("user".into()), true);
+        telemetry
+            .report_remote_event(
+                r#"{"event_type":"test","event_properties":{}}"#,
+                "ssh",
+                "Linux".into(),
+                None,
+                "aarch64".into(),
+            )
+            .unwrap();
+        telemetry.flush_events_inner().await.unwrap();
+
+        assert!(!telemetry.metrics_enabled());
+        assert!(!telemetry.diagnostics_enabled());
+        assert!(!telemetry.state.lock().settings.anthropic_retention);
+        assert!(telemetry.system_id().is_none());
+        assert!(telemetry.installation_id().is_none());
+        assert!(telemetry.metrics_id().is_none());
+        assert!(is_empty_state(&telemetry));
+        assert!(!should_install_crash_handler(ReleaseChannel::Stable));
+    }
+
+    #[gpui::test]
     async fn test_telemetry_flush_on_max_queue_size(
         executor: BackgroundExecutor,
         cx: &mut TestAppContext,
@@ -757,7 +806,7 @@ mod tests {
         let session_id = "session_id".to_string();
 
         let (telemetry, first_date_time, event) = cx.update(|cx| {
-            let telemetry = Telemetry::new(clock.clone(), http, cx);
+            let telemetry = _new_test_telemetry(clock.clone(), http, cx);
 
             telemetry.state.lock().max_queue_size = 4;
             telemetry.start(system_id, installation_id, session_id, cx);
@@ -834,7 +883,7 @@ mod tests {
         let session_id = "session_id".to_string();
 
         cx.update(|cx| {
-            let telemetry = Telemetry::new(clock.clone(), http, cx);
+            let telemetry = _new_test_telemetry(clock.clone(), http, cx);
             telemetry.state.lock().max_queue_size = 4;
             telemetry.start(system_id, installation_id, session_id, cx);
 
@@ -880,7 +929,7 @@ mod tests {
         let http = FakeHttpClient::with_200_response();
 
         let telemetry = cx.update(|cx| {
-            let telemetry = Telemetry::new(clock.clone(), http, cx);
+            let telemetry = _new_test_telemetry(clock.clone(), http, cx);
             telemetry.start(
                 Some("system_id".to_string()),
                 Some("installation_id".to_string()),
@@ -952,7 +1001,7 @@ mod tests {
 
         let clock = Arc::new(FakeSystemClock::new());
         let http = FakeHttpClient::with_200_response();
-        let telemetry = cx.update(|cx| Telemetry::new(clock.clone(), http, cx));
+        let telemetry = cx.update(|cx| _new_test_telemetry(clock.clone(), http, cx));
         let worktree_id = 1;
 
         // Scan of empty worktree finds nothing
@@ -976,7 +1025,7 @@ mod tests {
 
         let clock = Arc::new(FakeSystemClock::new());
         let http = FakeHttpClient::with_200_response();
-        let telemetry = cx.update(|cx| Telemetry::new(clock.clone(), http, cx));
+        let telemetry = cx.update(|cx| _new_test_telemetry(clock.clone(), http, cx));
 
         test_project_discovery_helper(
             telemetry,
@@ -992,7 +1041,7 @@ mod tests {
 
         let clock = Arc::new(FakeSystemClock::new());
         let http = FakeHttpClient::with_200_response();
-        let telemetry = cx.update(|cx| Telemetry::new(clock.clone(), http, cx));
+        let telemetry = cx.update(|cx| _new_test_telemetry(clock.clone(), http, cx));
 
         test_project_discovery_helper(
             telemetry,
@@ -1008,7 +1057,7 @@ mod tests {
 
         let clock = Arc::new(FakeSystemClock::new());
         let http = FakeHttpClient::with_200_response();
-        let telemetry = cx.update(|cx| Telemetry::new(clock.clone(), http, cx));
+        let telemetry = cx.update(|cx| _new_test_telemetry(clock.clone(), http, cx));
 
         // Using different worktrees, as production code blocks from reporting a
         // project type for the same worktree multiple times
@@ -1058,6 +1107,16 @@ mod tests {
     // TODO:
     // Test settings
     // Update FakeHTTPClient to keep track of the number of requests and assert on it
+
+    fn _new_test_telemetry(
+        clock: Arc<dyn SystemClock>,
+        client: Arc<HttpClientWithUrl>,
+        cx: &mut App,
+    ) -> Arc<Telemetry> {
+        let telemetry = Telemetry::new(clock, client, cx);
+        telemetry.state.lock().settings.metrics = true;
+        telemetry
+    }
 
     fn init_test(cx: &mut TestAppContext) {
         cx.update(|cx| {

@@ -610,11 +610,11 @@ impl From<Option<String>> for AudioOutputDeviceName {
 pub struct TelemetrySettingsContent {
     /// Send debug info like crash reports.
     ///
-    /// Default: true
+    /// Default: false
     pub diagnostics: Option<bool>,
     /// Send anonymized usage data like what languages you're using Zed with.
     ///
-    /// Default: true
+    /// Default: false
     pub metrics: Option<bool>,
     /// Allow sending requests to Anthropic models that cannot be offered with
     /// Zero Data Retention.
@@ -626,8 +626,8 @@ pub struct TelemetrySettingsContent {
 impl Default for TelemetrySettingsContent {
     fn default() -> Self {
         Self {
-            diagnostics: Some(true),
-            metrics: Some(true),
+            diagnostics: Some(false),
+            metrics: Some(false),
             anthropic_retention: Some(false),
         }
     }

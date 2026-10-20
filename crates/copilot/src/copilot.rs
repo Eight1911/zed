@@ -659,7 +659,7 @@ impl Copilot {
                 .detach();
 
             let configuration = lsp::DidChangeConfigurationParams {
-                settings: Default::default(),
+                settings: json!({ "telemetry": { "telemetryLevel": "off" } }),
             };
 
             let editor_info = request::SetEditorInfoParams {
@@ -1189,6 +1189,9 @@ impl Copilot {
         completion: &CopilotEditPrediction,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
+        if !telemetry::ENABLED {
+            return Task::ready(Ok(()));
+        }
         let server = match self.server.as_authenticated() {
             Ok(server) => server,
             Err(error) => return Task::ready(Err(error)),
@@ -1323,6 +1326,7 @@ fn notify_did_change_config_to_server(
         .clone();
 
     let settings = json!({
+        "telemetry": { "telemetryLevel": "off" },
         "http": {
             "proxy": copilot_settings.proxy,
             "proxyStrictSSL": !copilot_settings.proxy_no_verify.unwrap_or(false)

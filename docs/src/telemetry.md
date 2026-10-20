@@ -5,6 +5,15 @@ description: "What data Zed collects and how to control telemetry settings."
 
 # Telemetry in Zed
 
+This fork disables client-side telemetry in code. Settings, environment variables,
+staff status, and stored preferences cannot enable it. Usage events, crash uploads,
+hang reports, AI provider telemetry, prediction feedback, and training data sharing
+are disabled. Telemetry identifiers are omitted from service and update requests.
+
+Hosted services can still log requests, and third-party extensions, language
+servers, and external agents control their own data collection. The sections below
+describe upstream Zed.
+
 Zed collects anonymous telemetry to understand usage patterns and diagnose issues.
 
 Telemetry falls into two categories:

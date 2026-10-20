@@ -4,6 +4,9 @@ pub use serde_json;
 use std::sync::OnceLock;
 pub use telemetry_events::FlexibleEvent as Event;
 
+// This fork disables telemetry at build time, regardless of user settings.
+pub const ENABLED: bool = false;
+
 /// Macro to create telemetry events and send them to the telemetry queue.
 ///
 /// By convention, the name should be "Noun Verbed", e.g. "Keymap Changed"
@@ -21,25 +24,29 @@ pub use telemetry_events::FlexibleEvent as Event;
 #[macro_export]
 macro_rules! event {
     ($name:expr) => {{
-        let event = $crate::Event {
-            event_type: $name.to_string(),
-            event_properties: std::collections::HashMap::new(),
-        };
-        $crate::send_event(event);
+        if $crate::ENABLED {
+            let event = $crate::Event {
+                event_type: $name.to_string(),
+                event_properties: std::collections::HashMap::new(),
+            };
+            $crate::send_event(event);
+        }
     }};
     ($name:expr, $($key:ident $(= $value:expr)?),+ $(,)?) => {{
-        let event = $crate::Event {
-            event_type: $name.to_string(),
-            event_properties: std::collections::HashMap::from([
-                $(
-                    (stringify!($key).to_string(),
-                        $crate::serde_json::value::to_value(&$crate::serialize_property!($key $(= $value)?))
-                            .unwrap_or_else(|_| $crate::serde_json::to_value(&()).unwrap())
-                    ),
-                )+
-            ]),
-        };
-        $crate::send_event(event);
+        if $crate::ENABLED {
+            let event = $crate::Event {
+                event_type: $name.to_string(),
+                event_properties: std::collections::HashMap::from([
+                    $(
+                        (stringify!($key).to_string(),
+                            $crate::serde_json::value::to_value(&$crate::serialize_property!($key $(= $value)?))
+                                .unwrap_or_else(|_| $crate::serde_json::to_value(&()).unwrap())
+                        ),
+                    )+
+                ]),
+            };
+            $crate::send_event(event);
+        }
     }};
 }
 
@@ -54,13 +61,15 @@ macro_rules! serialize_property {
 }
 
 pub fn send_event(event: Event) {
-    if let Some(queue) = TELEMETRY_QUEUE.get() {
+    if ENABLED && let Some(queue) = TELEMETRY_QUEUE.get() {
         queue.unbounded_send(event).ok();
     }
 }
 
 pub fn init(tx: mpsc::UnboundedSender<Event>) {
-    TELEMETRY_QUEUE.set(tx).ok();
+    if ENABLED {
+        TELEMETRY_QUEUE.set(tx).ok();
+    }
 }
 
 static TELEMETRY_QUEUE: OnceLock<mpsc::UnboundedSender<Event>> = OnceLock::new();

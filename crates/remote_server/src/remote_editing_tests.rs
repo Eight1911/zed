@@ -376,36 +376,7 @@ async fn test_remote_telemetry_event_forwarding(
     let events = project.read_with(cx, |project, _| {
         project.client().telemetry().queued_events()
     });
-    assert_eq!(
-        events.len(),
-        1,
-        "the forwarded event should be reported once"
-    );
-    let event = &events[0];
-    assert_eq!(event.event_type, "fs_watcher_poll");
-    // The event's original properties survive the round-trip.
-    assert_eq!(
-        event.event_properties.get("path"),
-        Some(&serde_json::Value::String("/code/project1".to_string()))
-    );
-    // The client stamps the remote host metadata it learned at connection time.
-    // The mock connection reports a Linux/x86_64 host over a "mock" connection.
-    assert_eq!(
-        event.event_properties.get("remote"),
-        Some(&serde_json::Value::Bool(true))
-    );
-    assert_eq!(
-        event.event_properties.get("remote_connection_type"),
-        Some(&serde_json::Value::String("mock".to_string()))
-    );
-    assert_eq!(
-        event.event_properties.get("remote_os_name"),
-        Some(&serde_json::Value::String("Linux".to_string()))
-    );
-    assert_eq!(
-        event.event_properties.get("remote_architecture"),
-        Some(&serde_json::Value::String("x86_64".to_string()))
-    );
+    assert!(events.is_empty(), "remote telemetry must stay disabled");
 }
 
 async fn do_search_and_assert(
