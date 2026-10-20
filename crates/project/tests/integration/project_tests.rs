@@ -21329,10 +21329,10 @@ mod disable_ai_settings_tests {
         cx.update(|cx| {
             settings::init(cx);
 
-            // Test 1: Default is false (AI enabled)
+            // AI is disabled before any user settings are loaded.
             assert!(
-                !DisableAiSettings::get_global(cx).disable_ai,
-                "Default should allow AI"
+                DisableAiSettings::get_global(cx).disable_ai,
+                "AI must be disabled by default"
             );
         });
 
@@ -21377,11 +21377,20 @@ mod disable_ai_settings_tests {
         cx.update(|cx| {
             settings::init(cx);
 
-            // Default should allow AI
+            // The build policy disables AI by default.
             assert!(
-                !DisableAiSettings::get_global(cx).disable_ai,
-                "Default should allow AI"
+                DisableAiSettings::get_global(cx).disable_ai,
+                "AI must be disabled by default"
             );
+        });
+
+        cx.update_global::<SettingsStore, _>(|store, cx| {
+            store
+                .set_global_settings(r#"{"disable_ai": false}"#, cx)
+                .unwrap();
+            store
+                .set_user_settings(r#"{"disable_ai": false}"#, cx)
+                .unwrap();
         });
 
         let worktree_id = WorktreeId::from_usize(1);
@@ -21420,7 +21429,7 @@ mod disable_ai_settings_tests {
             );
         });
 
-        // Test: Setting project-level to false should allow AI for that project
+        // Project settings cannot enable AI.
         cx.update_global::<SettingsStore, _>(|store, cx| {
             store
                 .set_local_settings(
@@ -21435,14 +21444,11 @@ mod disable_ai_settings_tests {
 
         cx.update(|cx| {
             let settings = DisableAiSettings::get(Some(settings_location), cx);
+            assert!(settings.disable_ai, "Project settings must not enable AI");
+            // The global policy remains disabled.
             assert!(
-                !settings.disable_ai,
-                "Project-level disable_ai=false should allow AI"
-            );
-            // Global should also be false now
-            assert!(
-                !DisableAiSettings::get_global(cx).disable_ai,
-                "Global setting should be false when project-level is false"
+                DisableAiSettings::get_global(cx).disable_ai,
+                "Global AI policy must remain disabled"
             );
         });
 

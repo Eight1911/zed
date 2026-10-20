@@ -535,17 +535,19 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
         )
         .detach();
 
-        cx.defer(move |cx| {
-            window_handle
-                .update(cx, |_, window, cx| {
-                    let sidebar =
-                        cx.new(|cx| Sidebar::new(multi_workspace_handle.clone(), window, cx));
-                    multi_workspace_handle.update(cx, |multi_workspace, cx| {
-                        multi_workspace.register_sidebar(sidebar, cx);
-                    });
-                })
-                .ok();
-        });
+        if settings::AI_ENABLED {
+            cx.defer(move |cx| {
+                window_handle
+                    .update(cx, |_, window, cx| {
+                        let sidebar =
+                            cx.new(|cx| Sidebar::new(multi_workspace_handle.clone(), window, cx));
+                        multi_workspace_handle.update(cx, |multi_workspace, cx| {
+                            multi_workspace.register_sidebar(sidebar, cx);
+                        });
+                    })
+                    .ok();
+            });
+        }
     })
     .detach();
 
@@ -584,20 +586,23 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             }
         }
 
-        let edit_prediction_menu_handle = PopoverMenuHandle::default();
-        let edit_prediction_ui = cx.new(|cx| {
-            edit_prediction_ui::EditPredictionButton::new(
-                app_state.fs.clone(),
-                app_state.user_store.clone(),
-                edit_prediction_menu_handle.clone(),
-                workspace.project().clone(),
-                cx,
-            )
-        });
-        workspace.register_action({
-            move |_, _: &edit_prediction_ui::ToggleMenu, window, cx| {
-                edit_prediction_menu_handle.toggle(window, cx);
-            }
+        let edit_prediction_ui = settings::AI_ENABLED.then(|| {
+            let edit_prediction_menu_handle = PopoverMenuHandle::default();
+            let button = cx.new(|cx| {
+                edit_prediction_ui::EditPredictionButton::new(
+                    app_state.fs.clone(),
+                    app_state.user_store.clone(),
+                    edit_prediction_menu_handle.clone(),
+                    workspace.project().clone(),
+                    cx,
+                )
+            });
+            workspace.register_action({
+                move |_, _: &edit_prediction_ui::ToggleMenu, window, cx| {
+                    edit_prediction_menu_handle.toggle(window, cx);
+                }
+            });
+            button
         });
 
         let search_button = cx.new(|_| search::search_status_button::SearchButton::new());
@@ -640,7 +645,9 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             status_bar.add_left_item(git_blame_status, window, cx);
             status_bar.add_left_item(merge_conflict_indicator, window, cx);
             status_bar.add_left_item(activity_indicator, window, cx);
-            status_bar.add_right_item(edit_prediction_ui, window, cx);
+            if let Some(edit_prediction_ui) = edit_prediction_ui {
+                status_bar.add_right_item(edit_prediction_ui, window, cx);
+            }
             status_bar.add_right_item(active_buffer_encoding, window, cx);
             status_bar.add_right_item(active_buffer_language, window, cx);
             status_bar.add_right_item(active_toolchain_language, window, cx);
@@ -882,6 +889,9 @@ async fn initialize_agent_panel(
     workspace_handle: WeakEntity<Workspace>,
     mut cx: AsyncWindowContext,
 ) -> anyhow::Result<()> {
+    if !settings::AI_ENABLED {
+        return Ok(());
+    }
     workspace_handle
         .update_in(&mut cx, |workspace, window, cx| {
             ensure_agent_panel_for_workspace(workspace, None, window, cx)
@@ -6484,16 +6494,15 @@ mod tests {
     async fn test_disable_ai_filters_keybindings(cx: &mut gpui::TestAppContext) {
         let _app_state = init_keymap_test(cx);
 
-        // With AI enabled, the default keymap should include the assistant
-        // bindings that intercept e.g. ctrl-enter in the editor.
+        // AI bindings must be absent before loading user preferences.
         cx.update(load_default_keymap);
         cx.update(|cx| {
             let keymap = cx.key_bindings();
             let keymap = keymap.borrow();
             let has_ai_binding = keymap.bindings().any(|binding| is_ai_keybinding(binding));
             assert!(
-                has_ai_binding,
-                "expected AI-namespaced bindings in the default keymap before disabling AI"
+                !has_ai_binding,
+                "expected no AI-namespaced bindings by default"
             );
         });
 
@@ -8173,8 +8182,8 @@ mod tests {
         cx.update(|cx| reload_keymaps(cx, Vec::new()));
         cx.update(|cx| {
             assert!(
-                has_view_item(cx, "Agent Panel"),
-                "expected Agent Panel in the View menu when AI is enabled"
+                !has_view_item(cx, "Agent Panel"),
+                "expected no Agent Panel in the View menu by default"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -8213,8 +8222,8 @@ mod tests {
         cx.update(|cx| reload_keymaps(cx, Vec::new()));
         cx.update(|cx| {
             assert!(
-                has_view_item(cx, "Agent Panel"),
-                "expected Agent Panel back in the View menu after re-enabling AI"
+                !has_view_item(cx, "Agent Panel"),
+                "settings must not restore Agent Panel in the View menu"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -8230,8 +8239,8 @@ mod tests {
         cx.update(|cx| reload_keymaps(cx, Vec::new()));
         cx.update(|cx| {
             assert!(
-                has_view_item(cx, "Agent Panel"),
-                "expected Agent Panel before disabling AI"
+                !has_view_item(cx, "Agent Panel"),
+                "expected no Agent Panel before loading settings"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -8297,8 +8306,8 @@ mod tests {
 
         cx.update(|cx| {
             assert!(
-                has_view_item(cx, "Agent Panel"),
-                "expected Agent Panel added back even though the keymap file is malformed"
+                !has_view_item(cx, "Agent Panel"),
+                "settings must not restore Agent Panel with a malformed keymap"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),

@@ -882,7 +882,7 @@ fn maybe_backfill_editor_layout(fs: Arc<dyn Fs>, is_new_install: bool, cx: &mut 
     }
 }
 
-fn update_command_palette_filter(cx: &mut App) {
+pub fn update_command_palette_filter(cx: &mut App) {
     let disable_ai = DisableAiSettings::get_global(cx).disable_ai;
     let agent_enabled = AgentSettings::get_global(cx).enabled;
 
@@ -918,6 +918,7 @@ fn update_command_palette_filter(cx: &mut App) {
             filter.hide_namespace("copilot");
             filter.hide_namespace("zed_predict_onboarding");
             filter.hide_namespace("edit_prediction");
+            filter.hide_namespace("multi_workspace");
 
             filter.hide_action_types(&edit_prediction_actions);
             filter.hide_action_types(&[TypeId::of::<zed_actions::OpenZedPredictOnboarding>()]);
@@ -1119,7 +1120,7 @@ mod tests {
             DisableAiSettings::override_global(DisableAiSettings { disable_ai: false }, cx);
 
             // Initial update
-            update_command_palette_filter(cx);
+            _update_ai_enabled_command_palette_filter(cx);
         });
 
         // Assert visible
@@ -1162,7 +1163,7 @@ mod tests {
             AgentSettings::override_global(new_settings, cx);
 
             // Trigger update
-            update_command_palette_filter(cx);
+            _update_ai_enabled_command_palette_filter(cx);
         });
 
         // Assert hidden
@@ -1198,7 +1199,7 @@ mod tests {
                         .provider = Some(EditPredictionProvider::Copilot);
                 });
             });
-            update_command_palette_filter(cx);
+            _update_ai_enabled_command_palette_filter(cx);
         });
 
         cx.update(|cx| {
@@ -1220,7 +1221,7 @@ mod tests {
                         .provider = Some(EditPredictionProvider::None);
                 });
             });
-            update_command_palette_filter(cx);
+            _update_ai_enabled_command_palette_filter(cx);
         });
 
         cx.update(|cx| {
@@ -1381,5 +1382,10 @@ mod tests {
         assert_eq!(action.agent, Agent::NativeAgent.id());
 
         assert!(serde_json::from_str::<NewExternalAgentThread>(r#"{}"#).is_err());
+    }
+
+    fn _update_ai_enabled_command_palette_filter(cx: &mut App) {
+        DisableAiSettings::override_global(DisableAiSettings { disable_ai: false }, cx);
+        update_command_palette_filter(cx);
     }
 }

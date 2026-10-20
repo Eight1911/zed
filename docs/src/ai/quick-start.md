@@ -79,6 +79,11 @@ For general settings mechanics, see [Configuring Zed](../configuring-zed.md).
 
 ## Turn AI Off {#turn-ai-off}
 
+This fork disables AI in code. Agents, chat, edit predictions, inline assistants,
+AI commit messages, model providers, and MCP servers stay disabled even when saved
+settings request them. AI startup, credentials loading, model discovery, and agent
+downloads are skipped. The instructions below describe upstream Zed.
+
 Open the Settings Editor with {#action zed::OpenSettings}, search for `Disable AI`, and enable it.
 
 You can also add this to your settings file:

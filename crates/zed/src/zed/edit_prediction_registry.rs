@@ -14,6 +14,9 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 use ui::Window;
 
 pub fn init(client: Arc<Client>, user_store: Entity<UserStore>, cx: &mut App) {
+    if !settings::AI_ENABLED {
+        return;
+    }
     edit_prediction::EditPredictionStore::global(&client, &user_store, cx);
 
     let editors: Rc<RefCell<HashMap<WeakEntity<Editor>, AnyWindowHandle>>> = Rc::default();
@@ -392,9 +395,7 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn test_subscribe_uses_stale_provider_config_after_settings_change(
-        cx: &mut TestAppContext,
-    ) {
+    async fn test_settings_changes_cannot_enable_edit_predictions(cx: &mut TestAppContext) {
         let app_state = cx.update(|cx| {
             let app_state = AppState::test(cx);
             client::init(&app_state.client, cx);
@@ -459,8 +460,8 @@ mod tests {
         editor
             .update(cx, |editor, _window, _cx| {
                 assert!(
-                    editor.edit_prediction_provider().is_some(),
-                    "editor should have a provider after changing settings to Codestral"
+                    editor.edit_prediction_provider().is_none(),
+                    "settings must not enable an edit prediction provider"
                 );
             })
             .unwrap();
@@ -478,8 +479,8 @@ mod tests {
         editor
             .update(cx, |editor, _window, _cx| {
                 assert!(
-                    editor.edit_prediction_provider().is_some(),
-                    "BUG: subscribe closure used stale provider_config (None) instead of current (Codestral)"
+                    editor.edit_prediction_provider().is_none(),
+                    "user updates must not enable an edit prediction provider"
                 );
             })
             .unwrap();
