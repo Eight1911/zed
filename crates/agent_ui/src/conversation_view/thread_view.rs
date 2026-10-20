@@ -73,6 +73,9 @@ impl ThreadFeedbackState {
         window: &mut Window,
         cx: &mut App,
     ) {
+        if !telemetry::ENABLED {
+            return;
+        }
         let Some(telemetry) = thread.read(cx).connection().telemetry() else {
             return;
         };
@@ -124,6 +127,9 @@ impl ThreadFeedbackState {
     }
 
     pub fn submit_comments(&mut self, thread: Entity<AcpThread>, cx: &mut App) {
+        if !telemetry::ENABLED {
+            return;
+        }
         let Some(telemetry) = thread.read(cx).connection().telemetry() else {
             return;
         };
@@ -7648,6 +7654,9 @@ impl ThreadView {
     }
 
     fn is_thread_feedback_enabled(&self, cx: &App) -> bool {
+        if !telemetry::ENABLED {
+            return false;
+        }
         util::maybe!({
             let project = self.thread.read(cx).project().read(cx);
             let user_store = project.user_store();

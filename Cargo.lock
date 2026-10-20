@@ -3726,6 +3726,7 @@ dependencies = [
  "serde_json",
  "settings",
  "sum_tree",
+ "telemetry",
  "theme",
  "theme_settings",
  "util",

@@ -547,9 +547,9 @@ impl settings::Settings for TelemetrySettings {
     fn from_settings(content: &SettingsContent) -> Self {
         let telemetry = content.telemetry.as_ref().unwrap();
         Self {
-            diagnostics: telemetry.diagnostics.unwrap(),
-            metrics: telemetry.metrics.unwrap(),
-            anthropic_retention: telemetry.anthropic_retention.unwrap(),
+            diagnostics: ::telemetry::ENABLED && telemetry.diagnostics.unwrap(),
+            metrics: ::telemetry::ENABLED && telemetry.metrics.unwrap(),
+            anthropic_retention: ::telemetry::ENABLED && telemetry.anthropic_retention.unwrap(),
         }
     }
 }

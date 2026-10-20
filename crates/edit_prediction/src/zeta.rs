@@ -595,7 +595,9 @@ pub(crate) fn request_prediction_with_zeta(
         )
         .await;
 
-        if let Some(editable_range_in_buffer) = editable_range_in_buffer.clone() {
+        if telemetry::ENABLED
+            && let Some(editable_range_in_buffer) = editable_range_in_buffer.clone()
+        {
             let prediction = &result.prediction;
             let weak_this = this.clone();
             let request_id = prediction.id.clone();
@@ -843,7 +845,7 @@ pub(crate) fn edit_prediction_accepted(
     current_prediction: CurrentEditPrediction,
     cx: &App,
 ) {
-    if store.zeta2_raw_config().is_some() {
+    if !telemetry::ENABLED || store.zeta2_raw_config().is_some() {
         return;
     }
 

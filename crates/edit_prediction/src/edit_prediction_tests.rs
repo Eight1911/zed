@@ -10,8 +10,7 @@ use cloud_api_types::{
     SubmitEditPredictionSettledBatchBody, SubmitEditPredictionSettledResponse,
 };
 use cloud_llm_client::{
-    EditPredictionRejectReason, EditPredictionRejection, PredictEditsRequestTrigger,
-    RejectEditPredictionsBody, UsageLimit,
+    EditPredictionRejectReason, PredictEditsRequestTrigger, RejectEditPredictionsBody, UsageLimit,
     predict_edits_v3::{
         PredictEditsV3Request, PredictEditsV3Response, RawCompletionChoice, RawCompletionRequest,
         RawCompletionResponse, RawCompletionUsage,
@@ -332,9 +331,7 @@ async fn test_simple_request(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-async fn test_zeta_request_sends_settled_body_when_data_collection_is_disabled(
-    cx: &mut TestAppContext,
-) {
+async fn test_zeta_request_does_not_send_telemetry(cx: &mut TestAppContext) {
     let (ep_store, mut requests) = init_test_with_fake_client(cx);
     let fs = FakeFs::new(cx.executor());
     fs.insert_tree(
@@ -382,15 +379,7 @@ async fn test_zeta_request_sends_settled_body_when_data_collection_is_disabled(
         .advance_clock(EDIT_PREDICTION_SETTLED_QUIESCENCE);
     cx.run_until_parked();
 
-    let settled_request = requests
-        .settled
-        .next()
-        .now_or_never()
-        .flatten()
-        .expect("settled request should be sent");
-    assert!(!settled_request.can_collect_data);
-    assert_eq!(settled_request.settled_editable_region, None);
-    assert_eq!(settled_request.sample_data, None);
+    assert!(requests.settled.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -1473,32 +1462,12 @@ async fn test_empty_prediction(cx: &mut TestAppContext) {
         ));
     });
 
-    // prediction is reported as rejected
-    let (reject_request, _) = requests.reject.next().await.unwrap();
-
-    assert_eq!(
-        &reject_request.rejections,
-        &[EditPredictionRejection {
-            request_id: id.clone(),
-            reason: EditPredictionRejectReason::Empty,
-            was_shown: false,
-            model_version: Some("zeta2:test-empty".to_string()),
-            e2e_latency_ms: Some(0),
-        }]
-    );
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
     cx.executor()
         .advance_clock(EDIT_PREDICTION_SETTLED_QUIESCENCE);
     cx.run_until_parked();
 
-    let settled_request = requests
-        .settled
-        .next()
-        .now_or_never()
-        .flatten()
-        .expect("empty prediction should still send settled request");
-    assert_eq!(settled_request.request_id, id);
-    assert_eq!(settled_request.settled_editable_region, None);
-    assert_eq!(settled_request.sample_data, None);
+    assert!(requests.settled.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -1561,18 +1530,7 @@ async fn test_interpolated_empty(cx: &mut TestAppContext) {
         assert!(shown_predictions[0].editable_range.is_some());
     });
 
-    let (reject_request, _) = requests.reject.next().await.unwrap();
-
-    assert_eq!(
-        &reject_request.rejections,
-        &[EditPredictionRejection {
-            request_id: id,
-            reason: EditPredictionRejectReason::InterpolatedEmpty,
-            was_shown: false,
-            model_version: Some("zeta2:test-interpolated-empty".to_string()),
-            e2e_latency_ms: Some(0),
-        }]
-    );
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -1617,7 +1575,6 @@ async fn test_interpolate_failed(cx: &mut TestAppContext) {
 
     let mut response = model_response(&request, SIMPLE_DIFF);
     response.model_version = Some("zeta2:test-interpolate-failed".to_string());
-    let id = response.request_id.clone();
     respond_tx.send(response).unwrap();
 
     cx.run_until_parked();
@@ -1631,18 +1588,7 @@ async fn test_interpolate_failed(cx: &mut TestAppContext) {
         assert!(ep_store.rateable_predictions().next().is_none());
     });
 
-    let (reject_request, _) = requests.reject.next().await.unwrap();
-
-    assert_eq!(
-        &reject_request.rejections,
-        &[EditPredictionRejection {
-            request_id: id,
-            reason: EditPredictionRejectReason::InterpolateFailed,
-            was_shown: false,
-            model_version: Some("zeta2:test-interpolate-failed".to_string()),
-            e2e_latency_ms: Some(0),
-        }]
-    );
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
 }
 
 const SIMPLE_DIFF: &str = indoc! { r"
@@ -1738,19 +1684,7 @@ async fn test_replace_current(cx: &mut TestAppContext) {
         );
     });
 
-    // first is reported as replaced
-    let (reject_request, _) = requests.reject.next().await.unwrap();
-
-    assert_eq!(
-        &reject_request.rejections,
-        &[EditPredictionRejection {
-            request_id: first_id,
-            reason: EditPredictionRejectReason::Replaced,
-            was_shown: false,
-            model_version: None,
-            e2e_latency_ms: Some(0),
-        }]
-    );
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -1832,7 +1766,6 @@ async fn test_current_preferred(cx: &mut TestAppContext) {
         "},
     );
     second_response.model_version = Some("zeta2:test-current-preferred".to_string());
-    let second_id = second_response.request_id.clone();
     respond_tx.send(second_response).unwrap();
 
     cx.run_until_parked();
@@ -1854,19 +1787,7 @@ async fn test_current_preferred(cx: &mut TestAppContext) {
         assert!(shown_prediction_ids.is_empty());
     });
 
-    // second is reported as rejected
-    let (reject_request, _) = requests.reject.next().await.unwrap();
-
-    assert_eq!(
-        &reject_request.rejections,
-        &[EditPredictionRejection {
-            request_id: second_id,
-            reason: EditPredictionRejectReason::CurrentPreferred,
-            was_shown: false,
-            model_version: Some("zeta2:test-current-preferred".to_string()),
-            e2e_latency_ms: Some(0),
-        }]
-    );
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -1943,7 +1864,6 @@ async fn test_cancel_earlier_pending_requests(cx: &mut TestAppContext) {
 
     let mut first_response = model_response(&request1, SIMPLE_DIFF);
     first_response.model_version = Some("zeta2:test-canceled".to_string());
-    let first_id = first_response.request_id.clone();
     respond_first.send(first_response).unwrap();
 
     cx.run_until_parked();
@@ -1960,21 +1880,7 @@ async fn test_cancel_earlier_pending_requests(cx: &mut TestAppContext) {
         );
     });
 
-    // first is reported as rejected
-    let (reject_request, _) = requests.reject.next().await.unwrap();
-
-    cx.run_until_parked();
-
-    assert_eq!(
-        &reject_request.rejections,
-        &[EditPredictionRejection {
-            request_id: first_id,
-            reason: EditPredictionRejectReason::Canceled,
-            was_shown: false,
-            model_version: Some("zeta2:test-canceled".to_string()),
-            e2e_latency_ms: None,
-        }]
-    );
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -2078,7 +1984,6 @@ async fn test_cancel_second_on_third_request(cx: &mut TestAppContext) {
 
     let mut cancelled_response = model_response(&request2, SIMPLE_DIFF);
     cancelled_response.model_version = Some("zeta2:test-canceled-second".to_string());
-    let cancelled_id = cancelled_response.request_id.clone();
     respond_second.send(cancelled_response).unwrap();
 
     cx.run_until_parked();
@@ -2113,32 +2018,7 @@ async fn test_cancel_second_on_third_request(cx: &mut TestAppContext) {
         );
     });
 
-    // second is reported as rejected
-    let (reject_request, _) = requests.reject.next().await.unwrap();
-
-    cx.run_until_parked();
-
-    assert_eq!(
-        &reject_request.rejections,
-        &[
-            EditPredictionRejection {
-                request_id: cancelled_id,
-                reason: EditPredictionRejectReason::Canceled,
-                was_shown: false,
-                model_version: Some("zeta2:test-canceled-second".to_string()),
-                e2e_latency_ms: None,
-            },
-            EditPredictionRejection {
-                request_id: first_id,
-                reason: EditPredictionRejectReason::Replaced,
-                was_shown: false,
-                model_version: None,
-                // 2 throttle waits (for 2nd and 3rd requests) elapsed
-                // between this request's start and response.
-                e2e_latency_ms: Some(2 * EditPredictionStore::THROTTLE_TIMEOUT.as_millis()),
-            }
-        ]
-    );
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -2412,7 +2292,7 @@ async fn test_same_frame_duplicate_requests_deduplicated(cx: &mut TestAppContext
 }
 
 #[gpui::test]
-async fn test_rejections_flushing(cx: &mut TestAppContext) {
+async fn test_rejections_are_not_uploaded(cx: &mut TestAppContext) {
     let (ep_store, mut requests) = init_test_with_fake_client(cx);
 
     ep_store.update(cx, |ep_store, cx| {
@@ -2437,109 +2317,7 @@ async fn test_rejections_flushing(cx: &mut TestAppContext) {
     cx.executor().advance_clock(REJECT_REQUEST_DEBOUNCE);
     cx.run_until_parked();
 
-    let (reject_request, respond_tx) = requests.reject.next().await.unwrap();
-    respond_tx.send(()).unwrap();
-
-    // batched
-    assert_eq!(reject_request.rejections.len(), 2);
-    assert_eq!(
-        reject_request.rejections[0],
-        EditPredictionRejection {
-            request_id: "test-1".to_string(),
-            reason: EditPredictionRejectReason::Discarded,
-            was_shown: false,
-            model_version: None,
-            e2e_latency_ms: None
-        }
-    );
-    assert_eq!(
-        reject_request.rejections[1],
-        EditPredictionRejection {
-            request_id: "test-2".to_string(),
-            reason: EditPredictionRejectReason::Canceled,
-            was_shown: true,
-            model_version: None,
-            e2e_latency_ms: None
-        }
-    );
-
-    // Reaching batch size limit sends without debounce
-    ep_store.update(cx, |ep_store, cx| {
-        for i in 0..70 {
-            ep_store.reject_prediction(
-                EditPredictionId(format!("batch-{}", i).into()),
-                EditPredictionRejectReason::Discarded,
-                false,
-                None,
-                None,
-                cx,
-            );
-        }
-    });
-
-    // First MAX/2 items are sent immediately
-    cx.run_until_parked();
-    let (reject_request, respond_tx) = requests.reject.next().await.unwrap();
-    respond_tx.send(()).unwrap();
-
-    assert_eq!(reject_request.rejections.len(), 50);
-    assert_eq!(reject_request.rejections[0].request_id, "batch-0");
-    assert_eq!(reject_request.rejections[49].request_id, "batch-49");
-
-    // Remaining items are debounced with the next batch
-    cx.executor().advance_clock(Duration::from_secs(15));
-    cx.run_until_parked();
-
-    let (reject_request, respond_tx) = requests.reject.next().await.unwrap();
-    respond_tx.send(()).unwrap();
-
-    assert_eq!(reject_request.rejections.len(), 20);
-    assert_eq!(reject_request.rejections[0].request_id, "batch-50");
-    assert_eq!(reject_request.rejections[19].request_id, "batch-69");
-
-    // Request failure
-    ep_store.update(cx, |ep_store, cx| {
-        ep_store.reject_prediction(
-            EditPredictionId("retry-1".into()),
-            EditPredictionRejectReason::Discarded,
-            false,
-            None,
-            None,
-            cx,
-        );
-    });
-
-    cx.executor().advance_clock(REJECT_REQUEST_DEBOUNCE);
-    cx.run_until_parked();
-
-    let (reject_request, _respond_tx) = requests.reject.next().await.unwrap();
-    assert_eq!(reject_request.rejections.len(), 1);
-    assert_eq!(reject_request.rejections[0].request_id, "retry-1");
-    // Simulate failure
-    drop(_respond_tx);
-
-    // Add another rejection
-    ep_store.update(cx, |ep_store, cx| {
-        ep_store.reject_prediction(
-            EditPredictionId("retry-2".into()),
-            EditPredictionRejectReason::Discarded,
-            false,
-            None,
-            None,
-            cx,
-        );
-    });
-
-    cx.executor().advance_clock(REJECT_REQUEST_DEBOUNCE);
-    cx.run_until_parked();
-
-    // Retry should include both the failed item and the new one
-    let (reject_request, respond_tx) = requests.reject.next().await.unwrap();
-    respond_tx.send(()).unwrap();
-
-    assert_eq!(reject_request.rejections.len(), 2);
-    assert_eq!(reject_request.rejections[0].request_id, "retry-1");
-    assert_eq!(reject_request.rejections[1].request_id, "retry-2");
+    assert!(requests.reject.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -4283,8 +4061,7 @@ async fn init_sample_capture_test(
 }
 
 /// Enqueues a settled prediction capture with injected sample data, as the
-/// real request path would when data collection is enabled. Returns the
-/// editable offset range.
+/// real request path would when data collection is enabled.
 async fn enqueue_sample_capture(
     ep_store: &Entity<EditPredictionStore>,
     project: &Entity<Project>,
@@ -4295,7 +4072,7 @@ async fn enqueue_sample_capture(
     prompt_history_boundary: Option<PromptHistoryBoundary>,
     navigation_history: VecDeque<RecentFile>,
     cx: &mut TestAppContext,
-) -> Range<usize> {
+) {
     let snapshot = buffer.read_with(cx, |buffer, _cx| buffer.snapshot());
     let editable_offset_range = snapshot.point_to_offset(editable_point_range.start)
         ..snapshot.point_to_offset(editable_point_range.end);
@@ -4336,11 +4113,10 @@ async fn enqueue_sample_capture(
             prompt_history_boundary,
         });
     });
-    editable_offset_range
 }
 
 #[gpui::test]
-async fn test_edit_prediction_settled_sends_sample_data_after_quiescence(cx: &mut TestAppContext) {
+async fn test_edit_prediction_sample_data_is_not_uploaded(cx: &mut TestAppContext) {
     let (ep_store, mut requests, project, buffer) = init_sample_capture_test(
         json!({
             "LICENSE": MIT_LICENSE,
@@ -4371,7 +4147,7 @@ async fn test_edit_prediction_settled_sends_sample_data_after_quiescence(cx: &mu
                 .map(|last_event| last_event.new_snapshot.clone()),
         }
     });
-    let editable_offset_range = enqueue_sample_capture(
+    enqueue_sample_capture(
         &ep_store,
         &project,
         &buffer,
@@ -4408,7 +4184,6 @@ async fn test_edit_prediction_settled_sends_sample_data_after_quiescence(cx: &mu
         cx,
     )
     .await;
-    let expected_next_edit_cursor_offset = editable_offset_range.start;
 
     // A second capture whose user has data collection disabled; its sample
     // and settled region must be redacted at send time.
@@ -4472,80 +4247,11 @@ async fn test_edit_prediction_settled_sends_sample_data_after_quiescence(cx: &mu
         .advance_clock(EDIT_PREDICTION_SETTLED_QUIESCENCE);
     cx.run_until_parked();
 
-    let mut settled_by_id = std::collections::HashMap::new();
-    for _ in 0..2 {
-        let request = requests
-            .settled
-            .next()
-            .await
-            .expect("settled request should be sent");
-        settled_by_id.insert(request.request_id.clone(), request);
-    }
-
-    let redacted_request = settled_by_id.remove("prediction-redacted").unwrap();
-    assert!(!redacted_request.can_collect_data);
-    assert_eq!(redacted_request.settled_editable_region, None);
-    assert_eq!(redacted_request.sample_data, None);
-
-    let settled_request = settled_by_id.remove("prediction-sample").unwrap();
-    let sample_data = settled_request
-        .sample_data
-        .expect("sample data should be sent after quiescence");
-    assert_eq!(
-        sample_data.repository_url.as_deref(),
-        Some("https://example.com/repo.git")
-    );
-    assert_eq!(sample_data.revision.as_deref(), Some("abc123"));
-    assert_eq!(
-        sample_data.uncommitted_diff.as_deref(),
-        Some("--- a/foo.md\n+++ b/foo.md\n")
-    );
-    assert_eq!(sample_data.editable_path.as_ref(), Path::new("foo.md"));
-    assert_eq!(sample_data.editable_offset_range, editable_offset_range);
-    assert_eq!(sample_data.buffer_diagnostics.len(), 1);
-    assert_eq!(sample_data.editable_context.len(), 1);
-    let editable_context = &sample_data.editable_context[0];
-    assert_eq!(editable_context.path.as_ref(), Path::new("foo.md"));
-    assert_eq!(editable_context.excerpts.len(), 1);
-    assert_eq!(
-        editable_context.excerpts[0].context_source,
-        zeta_prompt::ContextSource::CurrentFile
-    );
-    assert_eq!(sample_data.future_edit_history_events.len(), 4);
-    assert_eq!(sample_data.navigation_history.len(), 1);
-    assert_eq!(sample_data.edit_events_before_quiescence, 5);
-    assert_eq!(
-        sample_data.next_edit_cursor_offset,
-        Some(expected_next_edit_cursor_offset)
-    );
-
-    let future_event_diffs = sample_data
-        .future_edit_history_events
-        .iter()
-        .map(|event| match event.as_ref() {
-            zeta_prompt::Event::BufferChange { diff, .. } => diff.as_str(),
-        })
-        .collect::<Vec<_>>();
-    assert!(future_event_diffs.iter().all(|diff| {
-        diff.lines()
-            .all(|line| !line.starts_with("+prompted ") && line != "-line 1")
-    }));
-    assert!(
-        future_event_diffs
-            .iter()
-            .any(|diff| diff.contains("future 0"))
-    );
-    assert!(
-        !future_event_diffs
-            .iter()
-            .any(|diff| diff.contains("future 4"))
-    );
+    assert!(requests.settled.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
-async fn test_edit_prediction_settled_sample_data_requires_observing_all_events_since_request(
-    cx: &mut TestAppContext,
-) {
+async fn test_edit_prediction_samples_are_not_uploaded_after_later_events(cx: &mut TestAppContext) {
     let (ep_store, mut requests, project, buffer) = init_sample_capture_test(
         json!({
             "LICENSE": MIT_LICENSE,
@@ -4638,29 +4344,11 @@ async fn test_edit_prediction_settled_sample_data_requires_observing_all_events_
         .advance_clock(EDIT_PREDICTION_SETTLED_QUIESCENCE);
     cx.run_until_parked();
 
-    let mut settled_by_id = std::collections::HashMap::new();
-    for _ in 0..2 {
-        let request = requests
-            .settled
-            .next()
-            .await
-            .expect("settled request should be sent");
-        settled_by_id.insert(request.request_id.clone(), request);
-    }
-
-    let observed_request = settled_by_id.remove("prediction-observed").unwrap();
-    let sample_data = observed_request
-        .sample_data
-        .expect("sample data should be sent");
-    assert_eq!(sample_data.edit_events_before_quiescence, 2);
-    assert_eq!(sample_data.future_edit_history_events.len(), 2);
-
-    let missed_request = settled_by_id.remove("prediction-missed").unwrap();
-    assert_eq!(missed_request.sample_data, None);
+    assert!(requests.settled.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
-async fn test_edit_prediction_settled_drops_sample_when_buffer_release_finalized_missed_event(
+async fn test_edit_prediction_samples_are_not_uploaded_after_buffer_release(
     cx: &mut TestAppContext,
 ) {
     let (ep_store, mut requests, project, buffer) = init_sample_capture_test(
@@ -4718,16 +4406,11 @@ async fn test_edit_prediction_settled_drops_sample_when_buffer_release_finalized
         .advance_clock(EDIT_PREDICTION_SETTLED_QUIESCENCE);
     cx.run_until_parked();
 
-    let request = requests
-        .settled
-        .next()
-        .await
-        .expect("settled request should be sent");
-    assert_eq!(request.sample_data, None);
+    assert!(requests.settled.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
-async fn test_edit_prediction_settled_drops_future_events_when_their_oss_status_is_unknown(
+async fn test_edit_prediction_samples_are_not_uploaded_for_unknown_licenses(
     cx: &mut TestAppContext,
 ) {
     let (ep_store, mut requests, project, buffer) = init_sample_capture_test(
@@ -4767,12 +4450,7 @@ async fn test_edit_prediction_settled_drops_future_events_when_their_oss_status_
         .advance_clock(EDIT_PREDICTION_SETTLED_QUIESCENCE);
     cx.run_until_parked();
 
-    let settled_request = requests
-        .settled
-        .next()
-        .await
-        .expect("settled request should be sent");
-    assert_eq!(settled_request.sample_data, None);
+    assert!(requests.settled.next().now_or_never().flatten().is_none());
 }
 
 #[gpui::test]
@@ -4816,22 +4494,22 @@ async fn test_data_collection_disabled_by_default(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-async fn test_data_collection_enabled_via_legacy_kv_store(cx: &mut TestAppContext) {
+async fn test_data_collection_disabled_despite_legacy_kv_store(cx: &mut TestAppContext) {
     let (ep_store, _channels) =
         init_test_with_fake_client_and_legacy_data_collection(cx, Some("true"));
 
     cx.update(|cx| {
-        assert!(ep_store.read(cx).is_data_collection_enabled(cx));
+        assert!(!ep_store.read(cx).is_data_collection_enabled(cx));
     });
 }
 
 #[gpui::test]
-async fn test_data_collection_default_uses_cached_legacy_value(cx: &mut TestAppContext) {
+async fn test_data_collection_disabled_after_legacy_choice_is_deleted(cx: &mut TestAppContext) {
     let (ep_store, _channels) =
         init_test_with_fake_client_and_legacy_data_collection(cx, Some("true"));
 
     cx.update(|cx| {
-        assert!(ep_store.read(cx).is_data_collection_enabled(cx));
+        assert!(!ep_store.read(cx).is_data_collection_enabled(cx));
     });
 
     cx.update(|cx| KeyValueStore::global(cx))
@@ -4840,7 +4518,7 @@ async fn test_data_collection_default_uses_cached_legacy_value(cx: &mut TestAppC
         .unwrap();
 
     cx.update(|cx| {
-        assert!(ep_store.read(cx).is_data_collection_enabled(cx));
+        assert!(!ep_store.read(cx).is_data_collection_enabled(cx));
     });
 }
 
@@ -4867,7 +4545,7 @@ async fn test_data_collection_setting_overrides_kv_store(cx: &mut TestAppContext
 }
 
 #[gpui::test]
-async fn test_data_collection_enabled_via_setting(cx: &mut TestAppContext) {
+async fn test_data_collection_disabled_despite_setting(cx: &mut TestAppContext) {
     let (ep_store, _channels) = init_test_with_fake_client(cx);
 
     cx.update_global::<SettingsStore, _>(|settings, cx| {
@@ -4882,17 +4560,17 @@ async fn test_data_collection_enabled_via_setting(cx: &mut TestAppContext) {
     });
 
     cx.update(|cx| {
-        assert!(ep_store.read(cx).is_data_collection_enabled(cx));
+        assert!(!ep_store.read(cx).is_data_collection_enabled(cx));
     });
 }
 
 #[gpui::test]
-async fn test_data_collection_always_enabled_for_staff(cx: &mut TestAppContext) {
+async fn test_data_collection_disabled_for_staff(cx: &mut TestAppContext) {
     let (ep_store, _channels) = init_test_with_fake_client(cx);
 
     cx.update(|cx| {
         cx.set_staff(true);
-        assert!(ep_store.read(cx).is_data_collection_enabled(cx));
+        assert!(!ep_store.read(cx).is_data_collection_enabled(cx));
     });
 }
 
@@ -4935,47 +4613,6 @@ async fn test_data_collection_disabled_by_organization_configuration(cx: &mut Te
         });
 
         assert!(!ep_store.read(cx).is_data_collection_enabled(cx));
-    });
-}
-
-// When a user had data collection enabled via the legacy KV store (with no explicit
-// setting in settings.json), toggle_data_collection must read the *resolved* state
-// (true) and write Some(false).
-#[gpui::test]
-async fn test_toggle_data_collection_from_kv_enabled_state(cx: &mut TestAppContext) {
-    let (ep_store, _channels) =
-        init_test_with_fake_client_and_legacy_data_collection(cx, Some("true"));
-
-    cx.update(|cx| {
-        assert!(
-            ep_store.read(cx).is_data_collection_enabled(cx),
-            "data collection should be enabled via KV store before toggle"
-        );
-    });
-
-    // Simulate what toggle_data_collection does: capture the resolved current
-    // state, then write its inverse.
-    let is_currently_enabled = cx.update(|cx| ep_store.read(cx).is_data_collection_enabled(cx));
-    cx.update_global::<SettingsStore, _>(|settings, cx| {
-        settings.update_user_settings(cx, |content| {
-            content
-                .project
-                .all_languages
-                .edit_predictions
-                .get_or_insert_default()
-                .allow_data_collection = Some(if is_currently_enabled {
-                EditPredictionDataCollectionChoice::No
-            } else {
-                EditPredictionDataCollectionChoice::Yes
-            });
-        });
-    });
-
-    cx.update(|cx| {
-        assert!(
-            !ep_store.read(cx).is_data_collection_enabled(cx),
-            "data collection should be disabled after toggling off from KV-enabled state"
-        );
     });
 }
 

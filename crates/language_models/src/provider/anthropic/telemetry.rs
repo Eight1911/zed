@@ -78,7 +78,7 @@ impl AnthropicEventReporter {
     }
 
     pub fn report(&self, event: AnthropicEventData) {
-        if !self.is_anthropic {
+        if !telemetry::ENABLED || !self.is_anthropic {
             return;
         }
         let Some(api_key) = self.api_key.clone() else {

@@ -153,7 +153,7 @@ impl EditPredictionDelegate for CopilotEditPredictionDelegate {
         let edits = interpolate_edits(&completion.snapshot, &buffer.snapshot(), &edits)
             .filter(|edits| !edits.is_empty())?;
         self.copilot.update(cx, |this, _| {
-            if let Ok(server) = this.server.as_authenticated() {
+            if telemetry::ENABLED && let Ok(server) = this.server.as_authenticated() {
                 match completion.source {
                     CompletionSource::NextEditSuggestion => {
                         if let Some(cmd) = completion.command.as_ref() {

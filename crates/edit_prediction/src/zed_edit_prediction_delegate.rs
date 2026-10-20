@@ -94,7 +94,7 @@ impl EditPredictionDelegate for ZedEditPredictionDelegate {
     }
 
     fn can_toggle_data_collection(&self, cx: &App) -> bool {
-        if cx.is_staff() {
+        if !telemetry::ENABLED || cx.is_staff() {
             return false;
         }
 

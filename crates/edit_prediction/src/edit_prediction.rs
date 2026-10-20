@@ -2280,6 +2280,9 @@ impl EditPredictionStore {
         e2e_latency: Option<std::time::Duration>,
         cx: &App,
     ) {
+        if !telemetry::ENABLED {
+            return;
+        }
         match self.edit_prediction_model {
             EditPredictionModel::Zeta => {
                 let is_cloud = !matches!(
@@ -2386,6 +2389,9 @@ async fn send_settled_batches(
         collections::FxBuildHasher,
     >,
 ) {
+    if !telemetry::ENABLED {
+        return;
+    }
     let Some(url) = client
         .http_client()
         .build_zed_llm_url("/predict_edits/settled", &[])
@@ -3283,7 +3289,7 @@ impl EditPredictionStore {
     }
 
     pub(crate) fn is_data_collection_enabled(&self, cx: &App) -> bool {
-        if !self.is_data_collection_allowed_by_organization(cx) {
+        if !telemetry::ENABLED || !self.is_data_collection_allowed_by_organization(cx) {
             return false;
         }
 
@@ -3344,6 +3350,9 @@ impl EditPredictionStore {
         expected_output: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        if !telemetry::ENABLED {
+            return;
+        }
         let organization = self.user_store.read(cx).current_organization();
 
         self.rated_predictions.insert(prediction.id.clone());

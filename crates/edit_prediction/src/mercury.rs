@@ -453,6 +453,9 @@ fn send_feedback(
     http_client: Arc<dyn HttpClient>,
     cx: &App,
 ) {
+    if !telemetry::ENABLED {
+        return;
+    }
     let request_id = prediction_id.0;
     let app_version = AppVersion::global(cx);
     cx.background_spawn(async move {
