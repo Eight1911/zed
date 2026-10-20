@@ -664,6 +664,9 @@ impl ContextServerStore {
     }
 
     pub fn start_server(&mut self, server: Arc<ContextServer>, cx: &mut Context<Self>) {
+        if DisableAiSettings::get_global(cx).disable_ai {
+            return;
+        }
         cx.spawn(async move |this, cx| {
             let this = this.upgrade().context("Context server store dropped")?;
             let id = server.id();
@@ -933,6 +936,10 @@ impl ContextServerStore {
         configuration: Arc<ContextServerConfiguration>,
         cx: &mut AsyncApp,
     ) -> Result<(Arc<ContextServer>, Arc<ContextServerConfiguration>)> {
+        anyhow::ensure!(
+            !cx.update(|cx| DisableAiSettings::get_global(cx).disable_ai),
+            "AI is disabled in this build"
+        );
         let remote = configuration.remote();
         let needs_remote_command = match configuration.as_ref() {
             ContextServerConfiguration::Custom { .. }
@@ -1110,6 +1117,7 @@ impl ContextServerStore {
         envelope: TypedEnvelope<proto::GetContextServerCommand>,
         mut cx: AsyncApp,
     ) -> Result<proto::ContextServerCommand> {
+        anyhow::ensure!(settings::AI_ENABLED, "AI is disabled in this build");
         let server_id = ContextServerId(envelope.payload.server_id.into());
 
         let (settings_entry, registry, worktree_store) =

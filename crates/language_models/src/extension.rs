@@ -42,6 +42,9 @@ impl ExtensionLanguageModelProviderProxy for LanguageModelProviderRegistryProxy 
         register_fn: LanguageModelProviderRegistration,
         cx: &mut App,
     ) {
+        if !settings::AI_ENABLED {
+            return;
+        }
         register_fn(cx);
     }
 

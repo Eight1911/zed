@@ -40,14 +40,8 @@ use lsp::{
     LanguageServerId, LanguageServerName,
 };
 use node_runtime::NodeRuntime;
-#[cfg(not(windows))]
-use project::{
-    AgentId,
-    context_server_store::{ContextServerStatus, ServerStatusChangedEvent},
-};
 use project::{
     CompletionSource, LanguageServerLogType, ProgressToken, Project, ProjectPath,
-    agent_server_store::AgentServerCommand,
     buffer_store::BufferStoreEvent,
     image_store,
     lsp_store::log_store::{
@@ -55,9 +49,9 @@ use project::{
     },
     search::{SearchQuery, SearchResult},
 };
-use remote::{ConnectionState, RemoteClient, RemoteClientEvent};
 #[cfg(not(windows))]
-use remote::{MOCK_STDIO_FRAME_HEX, command::RemoteCommand};
+use remote::MOCK_STDIO_FRAME_HEX;
+use remote::{ConnectionState, RemoteClient, RemoteClientEvent};
 use rpc::proto;
 use serde_json::json;
 use settings::{
@@ -4963,38 +4957,32 @@ async fn test_remote_external_agent_server(
             .collect::<Vec<_>>()
     });
     pretty_assertions::assert_eq!(names, ["foo"]);
-    let command = project
-        .update(cx, |project, cx| {
-            project.agent_server_store().update(cx, |store, cx| {
-                store
-                    .get_external_agent(&"foo".into())
-                    .unwrap()
-                    .get_command(
-                        vec![],
-                        HashMap::from_iter([("OTHER_VAR".into(), "other-val".into())]),
-                        &mut cx.to_async(),
-                    )
+    project.update(cx, |project, cx| {
+        project.agent_server_store().update(cx, |store, _| {
+            assert!(store.get_external_agent(&"foo".into()).is_none());
+        });
+    });
+    let remote = project.read_with(cx, |project, _| project.remote_client().unwrap().clone());
+    let response = remote
+        .update(cx, |remote, _| {
+            remote.proto_client().request(proto::GetAgentServerCommand {
+                project_id: proto::REMOTE_SERVER_PROJECT_ID,
+                name: "foo".into(),
+                root_dir: Some("/project".into()),
             })
         })
-        .await
-        .unwrap();
-    assert_eq!(
-        command,
-        AgentServerCommand {
-            path: "foo-cli".into(),
-            args: vec!["--flag".into()],
-            env: Some(HashMap::from_iter([
-                ("NO_BROWSER".into(), "1".into()),
-                ("VAR".into(), "val".into()),
-                ("OTHER_VAR".into(), "other-val".into())
-            ]))
-        }
+        .await;
+    assert!(
+        response
+            .expect_err("AI commands must be rejected")
+            .to_string()
+            .contains("AI is disabled in this build")
     );
 }
 
 #[cfg(not(windows))]
 #[gpui::test]
-async fn test_remote_external_agent_receives_env_over_stdin(
+async fn test_remote_external_agent_does_not_launch_from_saved_settings(
     cx: &mut TestAppContext,
     server_cx: &mut TestAppContext,
 ) {
@@ -5038,48 +5026,15 @@ async fn test_remote_external_agent_receives_env_over_stdin(
 
     let agent_server_store =
         project.read_with(cx, |project, _| project.agent_server_store().clone());
-    let command = agent_server_store
-        .update(cx, |store, cx| {
-            store
-                .get_external_agent(&"foo".into())
-                .unwrap()
-                .get_command(vec![], HashMap::default(), &mut cx.to_async())
-        })
-        .await
-        .unwrap();
-    let connection = agent_servers::AcpConnection::stdio(
-        AgentId::new("foo"),
-        project.clone(),
-        command,
-        agent_server_store.downgrade(),
-        None,
-        HashMap::default(),
-        &mut cx.to_async(),
-    )
-    .await
-    .unwrap();
-
-    let (launched, first_message) = read_stdio_launch(&output_path);
-    assert_eq!(launched.program, "/bin/sh");
-    assert_eq!(launched.args, args);
-    assert_eq!(
-        launched.env,
-        HashMap::from_iter([
-            (String::from("NO_BROWSER"), String::from("1")),
-            (
-                String::from("AGENT_TOKEN"),
-                String::from("agent-secret-sentinel")
-            ),
-        ])
-    );
-    assert_eq!(launched.working_dir.as_deref(), Some(path!("/project")));
-    assert_eq!(first_message["method"], "initialize");
-    drop(connection);
+    agent_server_store.update(cx, |store, _| {
+        assert!(store.get_external_agent(&"foo".into()).is_none());
+    });
+    assert!(!output_path.exists());
 }
 
 #[cfg(not(windows))]
 #[gpui::test]
-async fn test_remote_context_server_receives_env_over_stdin(
+async fn test_remote_context_server_does_not_launch_from_saved_settings(
     cx: &mut TestAppContext,
     server_cx: &mut TestAppContext,
 ) {
@@ -5095,13 +5050,6 @@ async fn test_remote_context_server_receives_env_over_stdin(
     cx.executor().allow_parking();
 
     let store = project.read_with(cx, |project, _| project.context_server_store());
-    let (status_tx, mut status_rx) = futures::channel::mpsc::unbounded();
-    let _subscription = cx.update(|cx| {
-        cx.subscribe(&store, move |_, event: &ServerStatusChangedEvent, _| {
-            status_tx.unbounded_send(event.status.clone()).ok();
-        })
-    });
-
     let output_dir = tempfile::tempdir().unwrap();
     let output_path = output_dir.path().join("launch");
     let args = stdio_launch_args(
@@ -5129,44 +5077,27 @@ async fn test_remote_context_server_receives_env_over_stdin(
         settings_store.set_user_settings(&settings, cx).unwrap();
     });
 
-    let statuses = async {
-        let mut statuses = Vec::new();
-        while let Some(status) = status_rx.next().await {
-            let starting = status == ContextServerStatus::Starting;
-            statuses.push(status);
-            if !starting {
-                break;
-            }
-        }
-        statuses
-    }
-    .fuse();
-    let timeout = cx
-        .background_executor
-        .timer(std::time::Duration::from_secs(30))
-        .fuse();
-    futures::pin_mut!(statuses, timeout);
-    let statuses = futures::select! {
-        statuses = statuses => statuses,
-        _ = timeout => panic!("timed out waiting for the context server status"),
-    };
-    assert_eq!(
-        statuses,
-        [ContextServerStatus::Starting, ContextServerStatus::Running]
+    cx.run_until_parked();
+    assert!(store.read_with(cx, |store, _| store.running_servers().is_empty()));
+    let remote = project.read_with(cx, |project, _| project.remote_client().unwrap().clone());
+    let response = remote
+        .update(cx, |remote, _| {
+            remote
+                .proto_client()
+                .request(proto::GetContextServerCommand {
+                    project_id: proto::REMOTE_SERVER_PROJECT_ID,
+                    server_id: "mcp".into(),
+                    root_dir: Some("/project".into()),
+                })
+        })
+        .await;
+    assert!(
+        response
+            .expect_err("AI commands must be rejected")
+            .to_string()
+            .contains("AI is disabled in this build")
     );
-
-    let (launched, first_message) = read_stdio_launch(&output_path);
-    assert_eq!(launched.program, "/bin/sh");
-    assert_eq!(launched.args, args);
-    assert_eq!(
-        launched.env,
-        HashMap::from_iter([(
-            String::from("MCP_TOKEN"),
-            String::from("mcp-secret-sentinel")
-        )])
-    );
-    assert_eq!(launched.working_dir.as_deref(), Some(path!("/project")));
-    assert_eq!(first_message["method"], "initialize");
+    assert!(!output_path.exists());
 }
 
 #[gpui::test]
@@ -6267,20 +6198,6 @@ exec cat >/dev/null"#
         output_path.display().to_string(),
         String::from(initialize_result),
     ]
-}
-
-#[cfg(not(windows))]
-fn read_stdio_launch(output_path: &Path) -> (RemoteCommand, serde_json::Value) {
-    let output = std::fs::read_to_string(output_path).unwrap();
-    let (frame_hex, first_line) = output.trim_end().split_once('\n').unwrap();
-    let frame = (0..frame_hex.len())
-        .step_by(2)
-        .map(|index| u8::from_str_radix(&frame_hex[index..index + 2], 16).unwrap())
-        .collect::<Vec<_>>();
-    let mut frame = &frame[..];
-    let command = RemoteCommand::read(&mut frame).unwrap();
-    assert_eq!(frame, b"");
-    (command, serde_json::from_str(first_line).unwrap())
 }
 
 fn build_project(ssh: Entity<RemoteClient>, cx: &mut TestAppContext) -> Entity<Project> {

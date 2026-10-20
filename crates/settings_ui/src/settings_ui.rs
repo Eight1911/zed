@@ -841,6 +841,9 @@ pub fn open_skill_creator(
     workspace_handle: Option<WindowHandle<MultiWorkspace>>,
     cx: &mut App,
 ) {
+    if !settings::AI_ENABLED {
+        return;
+    }
     open_settings_editor_with(workspace_handle, cx, |settings_window, window, cx| {
         settings_window.navigate_to_skill_creator(open_mode, window, cx);
     });

@@ -586,6 +586,9 @@ impl AgentServerStore {
         &mut self,
         name: &AgentId,
     ) -> Option<&mut (dyn ExternalAgentServer + 'static)> {
+        if !settings::AI_ENABLED {
+            return None;
+        }
         self.external_agents
             .get_mut(name)
             .map(|entry| entry.server.as_mut())
@@ -615,6 +618,7 @@ impl AgentServerStore {
         envelope: TypedEnvelope<proto::GetAgentServerCommand>,
         mut cx: AsyncApp,
     ) -> Result<proto::AgentServerCommand> {
+        anyhow::ensure!(settings::AI_ENABLED, "AI is disabled in this build");
         let command = this
             .update(&mut cx, |this, cx| {
                 let AgentServerStoreState::Local {

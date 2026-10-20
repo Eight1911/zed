@@ -76,10 +76,12 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
         terminal_page(),
         version_control_page(),
         collaboration_page(),
-        ai_page(cx),
         network_page(),
         developer_page(cx),
     ]
+    .into_iter()
+    .chain(settings::AI_ENABLED.then(|| ai_page(cx)))
+    .collect()
 }
 
 fn developer_page(cx: &App) -> SettingsPage {

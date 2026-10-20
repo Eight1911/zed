@@ -589,7 +589,7 @@ async fn test_context_server_respects_disable_ai(cx: &mut TestAppContext) {
         }));
     });
 
-    set_context_server_configuration(
+    _set_context_server_configuration(
         vec![(
             server_1_id.0.clone(),
             settings::ContextServerSettingsContent::Stdio {
@@ -603,6 +603,7 @@ async fn test_context_server_respects_disable_ai(cx: &mut TestAppContext) {
                 },
             },
         )],
+        false,
         cx,
     );
 
@@ -617,50 +618,22 @@ async fn test_context_server_respects_disable_ai(cx: &mut TestAppContext) {
         );
     });
 
-    // Enable AI and verify server starts
-    {
-        let _server_events = assert_server_events(
-            &store,
-            vec![
-                (server_1_id.clone(), ContextServerStatus::Starting),
-                (server_1_id.clone(), ContextServerStatus::Running),
-            ],
-            cx,
-        );
-        cx.update(|cx| {
-            SettingsStore::update_global(cx, |store, cx| {
-                store.update_user_settings(cx, |content| {
-                    content.project.disable_ai = Some(SaturatingBool(false));
-                });
-            });
-        });
-        cx.run_until_parked();
-    }
-
-    // Disable AI again and verify server stops
-    {
-        let _server_events = assert_server_events(
-            &store,
-            vec![(server_1_id.clone(), ContextServerStatus::Stopped)],
-            cx,
-        );
-        cx.update(|cx| {
-            SettingsStore::update_global(cx, |store, cx| {
-                store.update_user_settings(cx, |content| {
-                    content.project.disable_ai = Some(SaturatingBool(true));
-                });
-            });
-        });
-        cx.run_until_parked();
-    }
-
-    // Verify server is stopped
     cx.update(|cx| {
-        assert_eq!(
-            store.read(cx).status_for_server(&server_1_id),
-            Some(ContextServerStatus::Stopped),
-            "Server should be stopped when disable_ai is true"
-        );
+        SettingsStore::update_global(cx, |store, cx| {
+            store.update_user_settings(cx, |content| {
+                content.project.disable_ai = Some(SaturatingBool(false));
+            });
+        });
+    });
+    let server = Arc::new(ContextServer::new(
+        server_1_id.clone(),
+        Arc::new(create_fake_transport(SERVER_1_ID, cx.executor())),
+    ));
+    store.update(cx, |store, cx| store.start_server(server, cx));
+    cx.run_until_parked();
+    cx.read(|cx| {
+        assert!(DisableAiSettings::get_global(cx).disable_ai);
+        assert_eq!(store.read(cx).status_for_server(&server_1_id), None);
     });
 }
 
@@ -906,6 +879,14 @@ fn set_context_server_configuration(
     context_servers: Vec<(Arc<str>, settings::ContextServerSettingsContent)>,
     cx: &mut TestAppContext,
 ) {
+    _set_context_server_configuration(context_servers, true, cx);
+}
+
+fn _set_context_server_configuration(
+    context_servers: Vec<(Arc<str>, settings::ContextServerSettingsContent)>,
+    enable_fake_ai: bool,
+    cx: &mut TestAppContext,
+) {
     cx.update(|cx| {
         SettingsStore::update_global(cx, |store, cx| {
             store.update_user_settings(cx, |content| {
@@ -914,7 +895,10 @@ fn set_context_server_configuration(
                     content.project.context_servers.insert(id, config);
                 }
             });
-        })
+        });
+        if enable_fake_ai {
+            DisableAiSettings::override_global(DisableAiSettings { disable_ai: false }, cx);
+        }
     });
 }
 
@@ -1863,6 +1847,7 @@ async fn setup_context_server_test(
             settings.context_servers.insert(id, config);
         }
         ProjectSettings::override_global(settings, cx);
+        DisableAiSettings::override_global(DisableAiSettings { disable_ai: false }, cx);
     });
 
     let fs = FakeFs::new(cx.executor());

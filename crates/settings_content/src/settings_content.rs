@@ -38,6 +38,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings_macros::{MergeFrom, with_fallible_options};
 
+// AI is disabled in this fork regardless of user or project settings.
+pub const AI_ENABLED: bool = false;
+
 /// A non-negative size in pixels.
 ///
 /// Valid range: 0.0 and up

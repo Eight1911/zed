@@ -35,6 +35,9 @@ use crate::provider::x_ai_subscribed::XAiSubscribedProvider;
 pub use crate::settings::*;
 
 pub fn init(user_store: Entity<UserStore>, client: Arc<Client>, cx: &mut App) {
+    if !::settings::AI_ENABLED {
+        return;
+    }
     let credentials_provider = client.credentials_provider();
     let registry = LanguageModelRegistry::global(cx);
     registry.update(cx, |registry, cx| {
